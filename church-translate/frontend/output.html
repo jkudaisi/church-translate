@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Live Translation</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
+<style>
+  body { font-family: -apple-system, sans-serif; background: #0b0b0f; color: #f2f2f2; margin: 0; padding: 0; }
+  header { padding: 16px; text-align: center; border-bottom: 1px solid #262633; }
+  #lang-picker { display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; padding: 16px; }
+  .lang-btn { padding: 10px 18px; border-radius: 20px; border: 1px solid #444; background: #1a1a22; color: #eee; font-size: 15px; }
+  .lang-btn.active { background: #4f7cff; border-color: #4f7cff; }
+  #caption-view { padding: 24px 16px; font-size: 28px; line-height: 1.4; min-height: 40vh; text-align: center; }
+  #controls { display: flex; justify-content: center; gap: 12px; padding: 12px; }
+  #controls button { padding: 8px 16px; border-radius: 8px; border: none; background: #262633; color: #eee; }
+  #status { text-align: center; color: #888; font-size: 13px; padding-bottom: 8px; }
+</style>
+</head>
+<body>
+
+<header><strong>Live Translation</strong></header>
+
+<div id="lang-picker"></div>
+<div id="controls" style="display:none;">
+  <button id="toggle-audio">🔊 Audio: On</button>
+</div>
+<div id="status">Pick a language to begin</div>
+<div id="caption-view"></div>
+
+<script>
+// ---- Configure these two before deploying ----
+// Plain strings only — import.meta.env does not work in this static page.
+const SUPABASE_URL = "https://hkackttlhowerfcvqwto.supabase.co";
+const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImhrYWNrdHRsaG93ZXJmY3Zxd3RvIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODQ0NzA1MTgsImV4cCI6MjEwMDA0NjUxOH0.Z7fn4vYrArMNCStw07MijwzKNORYWDFaZyf5WKqnpGQ";
+// -----------------------------------------------
+
+const LANGUAGES = [
+  { code: "es", label: "Español", hasAudio: true },
+  { code: "fr", label: "Français", hasAudio: true },
+  { code: "yo", label: "Yorùbá", hasAudio: false },
+  { code: "ig", label: "Igbo", hasAudio: false },
+];
+
+let sb = null;
+let currentChannel = null;
+let audioEnabled = true;
+let audioCtx = null;
+let playHead = 0;
+
+const pickerEl = document.getElementById("lang-picker");
+const captionEl = document.getElementById("caption-view");
+const statusEl = document.getElementById("status");
+const controlsEl = document.getElementById("controls");
+const toggleAudioBtn = document.getElementById("toggle-audio");
+
+LANGUAGES.forEach((lang) => {
+  const btn = document.createElement("button");
+  btn.className = "lang-btn";
+  btn.textContent = lang.label;
+  btn.onclick = () => selectLanguage(lang);
+  pickerEl.appendChild(btn);
+});
+
+try {
+  if (!SUPABASE_URL || !SUPABASE_ANON_KEY || SUPABASE_ANON_KEY === "YOUR-ANON-KEY") {
+    throw new Error("Set SUPABASE_ANON_KEY in output.html (Project Settings → API → anon public)");
+  }
+  if (!window.supabase || !window.supabase.createClient) {
+    throw new Error("Supabase SDK failed to load — check the CDN script tag");
+  }
+  sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+} catch (err) {
+  console.error(err);
+  statusEl.textContent = err.message || "Supabase config error";
+}
+
+toggleAudioBtn.onclick = () => {
+  audioEnabled = !audioEnabled;
+  toggleAudioBtn.textContent = audioEnabled ? "🔊 Audio: On" : "🔇 Audio: Off";
+};
+
+function selectLanguage(lang) {
+  if (!sb) {
+    statusEl.textContent = "Supabase client not ready — check config / CDN";
+    return;
+  }
+
+  [...pickerEl.children].forEach((b) => b.classList.remove("active"));
+  const idx = LANGUAGES.indexOf(lang);
+  pickerEl.children[idx].classList.add("active");
+
+  if (currentChannel) {
+    sb.removeChannel(currentChannel);
+  }
+  captionEl.textContent = "";
+  statusEl.textContent = `Connected — ${lang.label}`;
+  controlsEl.style.display = lang.hasAudio ? "flex" : "none";
+
+  if (lang.hasAudio && !audioCtx) {
+    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    playHead = audioCtx.currentTime;
+  }
+
+  currentChannel = sb.channel(`church-translate:${lang.code}`);
+
+  currentChannel.on("broadcast", { event: "caption" }, (msg) => {
+    captionEl.textContent = msg.payload.text;
+  });
+
+  if (lang.hasAudio) {
+    currentChannel.on("broadcast", { event: "audio" }, (msg) => {
+      if (audioEnabled) playAudioChunk(msg.payload.audio_b64);
+    });
+  }
+
+  currentChannel.subscribe();
+}
+
+// Decodes a base64 MP3 chunk and schedules it to play back-to-back with
+// whatever's already queued, so segments don't overlap or stutter.
+async function playAudioChunk(base64) {
+  const binary = atob(base64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+
+  try {
+    const buffer = await audioCtx.decodeAudioData(bytes.buffer);
+    const source = audioCtx.createBufferSource();
+    source.buffer = buffer;
+    source.connect(audioCtx.destination);
+
+    const startAt = Math.max(playHead, audioCtx.currentTime);
+    source.start(startAt);
+    playHead = startAt + buffer.duration;
+  } catch (err) {
+    console.error("Audio decode failed:", err);
+  }
+}
+</script>
+
+</body>
+</html>
