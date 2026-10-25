@@ -1,6 +1,8 @@
-azure-cognitiveservices-speech>=1.40.0
-fastapi>=0.110.0
-uvicorn[standard]>=0.29.0
-python-dotenv>=1.0.0
-requests>=2.31.0
-supabase>=2.4.0
+# Pinned together on Python 3.12. Install from this folder:
+#   python -m venv .venv && . .venv/bin/activate && pip install -r requirements.txt
+azure-cognitiveservices-speech==1.53.0
+fastapi==0.162.0
+uvicorn[standard]==0.54.0
+python-dotenv==1.2.4
+requests==2.34.2
+supabase==2.33.0
