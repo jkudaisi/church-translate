@@ -63,6 +63,12 @@ Edit `.env`:
 Leave `RUN_MODE` blank until the keys are real. Placeholder values from
 `.env.example` stay in demo mode on purpose.
 
+`AZURE_SPEECH_ENDPOINT` is optional. When both it and `AZURE_SPEECH_REGION`
+are set, the Speech SDK is built from the region. The endpoint is used only
+when the region is empty. Leave the endpoint blank if the portal copied a
+generic host such as `https://eastus.api.cognitive.microsoft.com/`; that
+URL is not a valid speech-translation endpoint.
+
 Voices default to `es-ES-ElviraNeural` and `fr-FR-DeniseNeural`. Change the
 names in `backend/config.py` if you want another locale (for example an
 `es-MX` voice). Both names are in the current Azure voice list.
@@ -165,3 +171,4 @@ pytest
 - Background noise in the room will hurt accuracy more than the code will.
 - TTS and Translator run for every recognized line, even if nobody is listening in that language.
 - Azure Speech does not bill you in demo mode. Live mode does, for speech translation, Translator text, and TTS.
+- On Linux the Speech SDK may segfault when synthesizing directly to a WAV file (`AudioOutputConfig` with a filename). Helpers that make test WAVs should call the TTS REST API or synthesize in memory (`audio_config=None`) and write the bytes themselves. This app's live voices stay in memory as MP3, and the demo tone is written with Python's `wave` module, not the SDK.

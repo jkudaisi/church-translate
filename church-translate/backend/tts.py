@@ -5,8 +5,11 @@ Live mode asks Azure Speech for mono 16 kHz, 32 kbps MP3. A spoken line is
 small enough for Supabase Realtime's free-plan 256 KB broadcast limit, and
 browsers can decode audio/mpeg with decodeAudioData or an <audio> element.
 
-Demo mode writes a short PCM WAV tone. The output page decodes that with the
-same player, so the sound check does not need Azure.
+Demo mode writes a short PCM WAV tone with the stdlib wave module. The
+output page decodes that with the same player, so the sound check does not
+need Azure. Do not synthesize that WAV through the Speech SDK: on Linux the
+SDK can segfault when the output target is a WAV filename. Live synthesis
+keeps the MP3 in memory (`audio_config=None`) for the same reason.
 """
 
 from __future__ import annotations
@@ -82,7 +85,7 @@ def _azure_synthesize(lang: str, text: str) -> tuple[bytes, str] | None:
 
     speech_config.speech_synthesis_voice_name = voice_name
     speech_config.set_speech_synthesis_output_format(_OUTPUT_FORMAT)
-    # audio_config=None keeps the bytes on the result instead of the speakers.
+    # In-memory output. A WAV filename here can segfault the Speech SDK on Linux.
     synthesizer = speechsdk.SpeechSynthesizer(speech_config=speech_config, audio_config=None)
     result = synthesizer.speak_text_async(text).get()
 

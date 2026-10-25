@@ -7,6 +7,9 @@ import inspect
 import azure.cognitiveservices.speech as speechsdk
 import pytest
 
+from azure_speech import build_speech_config, build_translation_config
+from config import load_settings
+
 
 def test_speech_sdk_methods_we_call() -> None:
     recognizer = speechsdk.translation.TranslationRecognizer
@@ -20,6 +23,53 @@ def test_speech_sdk_methods_we_call() -> None:
     assert hasattr(speechsdk.SpeechSynthesisOutputFormat, "Audio16Khz32KBitRateMonoMp3")
     synth_signature = inspect.signature(speechsdk.SpeechSynthesizer.__init__)
     assert "audio_config" in synth_signature.parameters
+
+
+def test_speech_config_prefers_region_over_generic_endpoint(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("AZURE_SPEECH_KEY", "speech-key")
+    monkeypatch.setenv("AZURE_SPEECH_REGION", "eastus")
+    monkeypatch.setenv("AZURE_SPEECH_ENDPOINT", "https://eastus.api.cognitive.microsoft.com/")
+    load_settings()
+
+    endpoint_prop = speechsdk.PropertyId.SpeechServiceConnection_Endpoint
+    for config in (build_speech_config(), build_translation_config()):
+        assert config.region == "eastus"
+        assert config.get_property(endpoint_prop) == ""
+
+
+def test_speech_config_falls_back_to_endpoint_without_region(monkeypatch: pytest.MonkeyPatch) -> None:
+    endpoint = "https://eastus.stt.speech.microsoft.com"
+    monkeypatch.setenv("AZURE_SPEECH_KEY", "speech-key")
+    monkeypatch.delenv("AZURE_SPEECH_REGION", raising=False)
+    monkeypatch.setenv("AZURE_SPEECH_ENDPOINT", endpoint)
+    load_settings()
+
+    endpoint_prop = speechsdk.PropertyId.SpeechServiceConnection_Endpoint
+    for config in (build_speech_config(), build_translation_config()):
+        assert config.region == ""
+        assert config.get_property(endpoint_prop) == endpoint
+
+
+def test_speech_config_uses_region_alone(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("AZURE_SPEECH_KEY", "speech-key")
+    monkeypatch.setenv("AZURE_SPEECH_REGION", "eastus")
+    monkeypatch.delenv("AZURE_SPEECH_ENDPOINT", raising=False)
+    load_settings()
+
+    endpoint_prop = speechsdk.PropertyId.SpeechServiceConnection_Endpoint
+    for config in (build_speech_config(), build_translation_config()):
+        assert config.region == "eastus"
+        assert config.get_property(endpoint_prop) == ""
+
+
+def test_speech_config_requires_region_or_endpoint(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("AZURE_SPEECH_KEY", "speech-key")
+    monkeypatch.delenv("AZURE_SPEECH_REGION", raising=False)
+    monkeypatch.delenv("AZURE_SPEECH_ENDPOINT", raising=False)
+    load_settings()
+
+    with pytest.raises(RuntimeError, match="AZURE_SPEECH_REGION or AZURE_SPEECH_ENDPOINT"):
+        build_speech_config()
 
 
 def test_file_audio_config_accepts_wav(tmp_path) -> None:
